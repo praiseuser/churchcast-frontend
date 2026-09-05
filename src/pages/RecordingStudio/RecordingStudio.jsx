@@ -68,7 +68,10 @@ export default function RecordingStudio() {
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/token`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("churchcast_token")}`,
+        },
         body: JSON.stringify({
           roomName: id,
           participantName: user?.name || "Media Team",
