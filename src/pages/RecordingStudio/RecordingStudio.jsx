@@ -9,6 +9,8 @@ import {
   FormControl,
   InputLabel,
   IconButton,
+  Switch,
+  FormControlLabel,
 } from "@mui/material";
 import FiberManualRecordIcon from "@mui/icons-material/FiberManualRecord";
 import PauseIcon from "@mui/icons-material/Pause";
@@ -41,6 +43,8 @@ export default function RecordingStudio() {
 
   const [audioDevices, setAudioDevices] = useState([]);
   const [selectedAudioDevice, setSelectedAudioDevice] = useState("");
+
+  const [streamToFacebook, setStreamToFacebook] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -109,8 +113,8 @@ export default function RecordingStudio() {
       await refreshAudioDevices();
 
       try {
-        await startEgress(id);
-        console.log("Recording started saving to storage");
+        const result = await startEgress(id, { streamToFacebook });
+        console.log("Recording started saving to storage", result);
       } catch (err) {
         console.error("Could not start server-side recording:", err);
       }
@@ -298,6 +302,21 @@ export default function RecordingStudio() {
               ))}
             </Select>
           </FormControl>
+
+          <FormControlLabel
+            control={
+              <Switch
+                checked={streamToFacebook}
+                onChange={(e) => setStreamToFacebook(e.target.checked)}
+                disabled={isLive}
+                sx={{
+                  "& .MuiSwitch-switchBase.Mui-checked": { color: "#1877F2" },
+                  "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: "#1877F2" },
+                }}
+              />
+            }
+            label={<Typography variant="body2" sx={{ color: "rgba(237,239,244,0.8)" }}>Also go live on Facebook</Typography>}
+          />
 
           <Box>
             <Typography variant="body2" sx={{ color: "rgba(237,239,244,0.55)", mb: 1.5 }}>

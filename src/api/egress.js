@@ -1,7 +1,7 @@
 import apiClient from "./client";
 
-export async function startEgress(recordingId) {
-  const { data } = await apiClient.post(`/egress/${recordingId}/start`);
+export async function startEgress(recordingId, payload = {}) {
+  const { data } = await apiClient.post(`/egress/${recordingId}/start`, payload);
   return data;
 }
 

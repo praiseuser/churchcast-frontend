@@ -5,6 +5,7 @@ import { getChurch, updateChurch } from "../../api/church";
 export default function ChurchSettings() {
     const [churchName, setChurchName] = useState("");
     const [brandColor, setBrandColor] = useState("#E2A33E");
+    const [facebookStreamUrl, setFacebookStreamUrl] = useState("");
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
@@ -15,6 +16,7 @@ export default function ChurchSettings() {
             .then((data) => {
                 setChurchName(data.name || "");
                 setBrandColor(data.brandingColors || "#E2A33E");
+                setFacebookStreamUrl(data.facebookStreamUrl || "");
             })
             .catch((err) => {
                 console.error(err);
@@ -28,7 +30,7 @@ export default function ChurchSettings() {
         setSaved(false);
         setError("");
         try {
-            await updateChurch({ name: churchName, brandingColors: brandColor });
+            await updateChurch({ name: churchName, brandingColors: brandColor, facebookStreamUrl });
             setSaved(true);
         } catch (err) {
             setError(err.response?.data?.message || "Could not save changes.");
@@ -92,6 +94,19 @@ export default function ChurchSettings() {
                             sx={{ width: 140 }}
                         />
                     </Box>
+                </Box>
+
+                <Box sx={{ mt: 3 }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                        Facebook Live Stream URL
+                    </Typography>
+                    <TextField
+                        fullWidth
+                        placeholder="rtmps://live-api-s.facebook.com:443/rtmp/YOUR-STREAM-KEY"
+                        value={facebookStreamUrl}
+                        onChange={(e) => setFacebookStreamUrl(e.target.value)}
+                        helperText="From Facebook's Live Producer — combine the Server URL and Stream Key into one link"
+                    />
                 </Box>
 
                 <Button
