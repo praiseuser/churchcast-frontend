@@ -11,11 +11,13 @@ import {
   IconButton,
   Switch,
   FormControlLabel,
+  Slider,
 } from "@mui/material";
 import FiberManualRecordIcon from "@mui/icons-material/FiberManualRecord";
 import PauseIcon from "@mui/icons-material/Pause";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import StopIcon from "@mui/icons-material/Stop";
+import ZoomInIcon from "@mui/icons-material/ZoomIn";
 import LevelMeter from "../../components/LevelMeter";
 import useAuthStore from "../../context/authStore";
 import { startEgress, stopEgress } from "../../api/egress";
@@ -33,6 +35,7 @@ export default function RecordingStudio() {
   const videoRef = useRef(null);
   const roomRef = useRef(null);
   const timerRef = useRef(null);
+  const videoTrackRef = useRef(null);
 
   const [cameraError, setCameraError] = useState(false);
   const [isLive, setIsLive] = useState(false);
@@ -45,6 +48,10 @@ export default function RecordingStudio() {
   const [selectedAudioDevice, setSelectedAudioDevice] = useState("");
 
   const [streamToFacebook, setStreamToFacebook] = useState(false);
+
+  const [zoomSupported, setZoomSupported] = useState(false);
+  const [zoomRange, setZoomRange] = useState({ min: 1, max: 1, step: 0.1 });
+  const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
     return () => {
@@ -63,6 +70,39 @@ export default function RecordingStudio() {
       }
     } catch (err) {
       console.error("Could not list audio devices:", err);
+    }
+  };
+
+  const checkZoomSupport = (localVideoTrack) => {
+    try {
+      const mediaTrack = localVideoTrack.mediaStreamTrack;
+      const capabilities = mediaTrack.getCapabilities?.();
+      if (capabilities && capabilities.zoom) {
+        setZoomSupported(true);
+        setZoomRange({
+          min: capabilities.zoom.min,
+          max: capabilities.zoom.max,
+          step: capabilities.zoom.step || 0.1,
+        });
+        setZoom(capabilities.zoom.min);
+      } else {
+        setZoomSupported(false);
+      }
+    } catch (err) {
+      console.error("Zoom not supported on this device:", err);
+      setZoomSupported(false);
+    }
+  };
+
+  const handleZoomChange = async (value) => {
+    setZoom(value);
+    const track = videoTrackRef.current?.mediaStreamTrack;
+    if (track) {
+      try {
+        await track.applyConstraints({ advanced: [{ zoom: value }] });
+      } catch (err) {
+        console.error("Could not apply zoom:", err);
+      }
     }
   };
 
@@ -90,6 +130,8 @@ export default function RecordingStudio() {
       room.on(RoomEvent.LocalTrackPublished, (publication) => {
         if (publication.track && publication.track.kind === "video" && videoRef.current) {
           publication.track.attach(videoRef.current);
+          videoTrackRef.current = publication.track;
+          checkZoomSupport(publication.track);
         }
       });
       room.on(RoomEvent.Disconnected, () => {
@@ -103,7 +145,8 @@ export default function RecordingStudio() {
 
       setStatus("Publishing camera and microphone...");
       try {
-        await room.localParticipant.enableCameraAndMicrophone();
+        await room.localParticipant.setCameraEnabled(true, { facingMode: "environment" });
+        await room.localParticipant.setMicrophoneEnabled(true);
         setCameraError(false);
       } catch (mediaErr) {
         console.error("Camera/mic error:", mediaErr);
@@ -178,7 +221,6 @@ export default function RecordingStudio() {
         color: "#EDEFF4",
       }}
     >
-      {/* Header */}
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 4 }}>
         <Box>
           <Typography variant="h5" sx={{ fontFamily: '"Newsreader", serif' }}>
@@ -219,7 +261,6 @@ export default function RecordingStudio() {
       </Box>
 
       <Box sx={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-        {/* Camera viewfinder */}
         <Box
           sx={{
             flex: 2,
@@ -257,6 +298,38 @@ export default function RecordingStudio() {
             </Box>
           )}
 
+          {zoomSupported && (
+            <Box
+              sx={{
+                position: "absolute",
+                bottom: 14,
+                left: 14,
+                right: 14,
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                bgcolor: "rgba(0,0,0,0.5)",
+                borderRadius: 2,
+                px: 1.5,
+                py: 0.5,
+              }}
+            >
+              <ZoomInIcon sx={{ color: "#fff", fontSize: 18 }} />
+              <Slider
+                value={zoom}
+                min={zoomRange.min}
+                max={zoomRange.max}
+                step={zoomRange.step}
+                onChange={(e, val) => handleZoomChange(val)}
+                size="small"
+                sx={{
+                  color: "#E2A33E",
+                  "& .MuiSlider-thumb": { width: 14, height: 14 },
+                }}
+              />
+            </Box>
+          )}
+
           {[
             { top: 14, left: 14, borderTop: "2px solid", borderLeft: "2px solid" },
             { top: 14, right: 14, borderTop: "2px solid", borderRight: "2px solid" },
@@ -276,7 +349,6 @@ export default function RecordingStudio() {
           ))}
         </Box>
 
-        {/* Control panel */}
         <Box sx={{ flex: 1, minWidth: 260, display: "flex", flexDirection: "column", gap: 4 }}>
           <FormControl fullWidth size="small">
             <InputLabel sx={{ color: "rgba(237,239,244,0.55)" }}>Audio Source</InputLabel>
