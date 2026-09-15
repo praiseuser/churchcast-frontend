@@ -2,10 +2,8 @@ import { useState, useRef } from "react";
 import { Room, RoomEvent } from "livekit-client";
 import { Box, Typography, TextField, Button, Paper } from "@mui/material";
 
-const TOKEN_SERVER_URL = import.meta.env.VITE_TOKEN_SERVER_URL || "http://localhost:4001";
-
 export default function Viewer() {
-    const [roomName, setRoomName] = useState("sunday-service");
+    const [roomName, setRoomName] = useState("");
     const [connected, setConnected] = useState(false);
     const [status, setStatus] = useState("");
     const videoRef = useRef(null);
@@ -13,13 +11,21 @@ export default function Viewer() {
     const roomRef = useRef(null);
 
     const handleConnect = async () => {
+        if (!roomName.trim()) {
+            setStatus("Enter a recording ID first");
+            return;
+        }
         setStatus("Requesting token...");
         try {
-            const res = await fetch(`${TOKEN_SERVER_URL}/token`, {
+            const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/token`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${localStorage.getItem("churchcast_token")}`,
+                },
                 body: JSON.stringify({ roomName, participantName: "Laptop-Viewer" }),
             });
+            if (!res.ok) throw new Error(`Token request failed with ${res.status}`);
             const { token, url } = await res.json();
 
             const room = new Room();
@@ -38,7 +44,7 @@ export default function Viewer() {
             setStatus("Watching live");
         } catch (err) {
             console.error(err);
-            setStatus("Failed to connect — check token server and LiveKit credentials");
+            setStatus(`Failed to connect: ${err.message}`);
         }
     };
 
@@ -55,13 +61,26 @@ export default function Viewer() {
             </Typography>
 
             <Paper sx={{ p: 3, mb: 3 }}>
-                <TextField label="Room Name" fullWidth margin="normal" value={roomName} onChange={(e) => setRoomName(e.target.value)} disabled={connected} />
+                <TextField
+                    label="Recording ID"
+                    fullWidth
+                    margin="normal"
+                    value={roomName}
+                    onChange={(e) => setRoomName(e.target.value)}
+                    disabled={connected}
+                />
                 {!connected ? (
-                    <Button variant="contained" fullWidth sx={{ mt: 2 }} onClick={handleConnect}>Watch Live</Button>
+                    <Button variant="contained" fullWidth sx={{ mt: 2 }} onClick={handleConnect}>
+                        Watch Live
+                    </Button>
                 ) : (
-                    <Button variant="outlined" fullWidth sx={{ mt: 2 }} color="error" onClick={handleDisconnect}>Stop Watching</Button>
+                    <Button variant="outlined" fullWidth sx={{ mt: 2 }} color="error" onClick={handleDisconnect}>
+                        Stop Watching
+                    </Button>
                 )}
-                <Typography variant="body2" sx={{ mt: 2, color: "text.secondary" }}>{status}</Typography>
+                <Typography variant="body2" sx={{ mt: 2, color: "text.secondary" }}>
+                    {status}
+                </Typography>
             </Paper>
 
             <Box sx={{ aspectRatio: "16/9", bgcolor: "#000" }}>
