@@ -36,7 +36,7 @@ export default function RecordingStudio() {
   const roomRef = useRef(null);
   const timerRef = useRef(null);
   const mediaRecorderRef = useRef(null);
-  const recordedChunksRef = useRef([]);
+  const chunkQueueRef = useRef(Promise.resolve());
 
   const [cameraError, setCameraError] = useState(false);
   const [isLive, setIsLive] = useState(false);
@@ -100,6 +100,20 @@ export default function RecordingStudio() {
     }
   };
 
+  const uploadChunk = async (blob) => {
+    const formData = new FormData();
+    formData.append("chunk", blob, `${id}.webm`);
+    try {
+      await fetch(`${import.meta.env.VITE_API_URL || ""}/recordings/${id}/chunk`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${localStorage.getItem("churchcast_token")}` },
+        body: formData,
+      });
+    } catch (err) {
+      console.error("Chunk upload failed:", err);
+    }
+  };
+
   const startLocalRecording = (room) => {
     const videoPub = Array.from(room.localParticipant.videoTrackPublications.values())[0];
     const audioPub = Array.from(room.localParticipant.audioTrackPublications.values())[0];
@@ -109,12 +123,15 @@ export default function RecordingStudio() {
     if (!tracks.length) return;
 
     const combinedStream = new MediaStream(tracks);
-    recordedChunksRef.current = [];
     const recorder = new MediaRecorder(combinedStream, { mimeType: "video/webm;codecs=vp8,opus" });
+
     recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+      if (e.data.size > 0) {
+        chunkQueueRef.current = chunkQueueRef.current.then(() => uploadChunk(e.data));
+      }
     };
-    recorder.start(1000);
+
+    recorder.start(10000); // sends a piece to the server every 10 seconds
     mediaRecorderRef.current = recorder;
   };
 
@@ -203,6 +220,8 @@ export default function RecordingStudio() {
       });
     }
 
+    await chunkQueueRef.current;
+
     try {
       await stopEgress(id);
     } catch (err) {
@@ -214,28 +233,19 @@ export default function RecordingStudio() {
     setIsLive(false);
     setIsPaused(false);
 
-    if (recordedChunksRef.current.length) {
-      setStatus("Uploading recording — do not close this page...");
-      try {
-        const blob = new Blob(recordedChunksRef.current, { type: "video/webm" });
-        const formData = new FormData();
-        formData.append("file", blob, `${id}.webm`);
-
-        const uploadRes = await fetch(`${import.meta.env.VITE_API_URL || ""}/recordings/${id}/upload`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${localStorage.getItem("churchcast_token")}` },
-          body: formData,
-        });
-        if (!uploadRes.ok) throw new Error(`Upload failed with ${uploadRes.status}`);
-        const result = await uploadRes.json();
-        console.log("Recording saved:", result);
-        setStatus("Recording saved!");
-      } catch (err) {
-        console.error("Upload failed:", err);
-        setStatus("Upload failed — recording may be lost, check console");
-      }
-    } else {
-      setStatus("Ready to record");
+    setStatus("Finalizing recording on server — do not close this page...");
+    try {
+      const finalizeRes = await fetch(`${import.meta.env.VITE_API_URL || ""}/recordings/${id}/finalize`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${localStorage.getItem("churchcast_token")}` },
+      });
+      if (!finalizeRes.ok) throw new Error(`Finalize failed with ${finalizeRes.status}`);
+      const result = await finalizeRes.json();
+      console.log("Recording saved:", result);
+      setStatus("Recording saved!");
+    } catch (err) {
+      console.error("Finalize failed:", err);
+      setStatus("Upload finished, finalizing failed — your recording is safe on the server, contact support to recover it");
     }
 
     setSeconds(0);
