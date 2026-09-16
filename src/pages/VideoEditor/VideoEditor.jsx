@@ -18,6 +18,7 @@ import TuneIcon from "@mui/icons-material/Tune";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import VolumeSlider from "../../components/VolumeSlider";
 import InstrumentalPanel from "../../components/InstrumentalPanel";
+import SoundboardPanel from "../../components/SoundboardPanel";
 import VisualEffectsPanel, { FILTER_PRESETS } from "../../components/VisualEffectsPanel";
 import { getRecording, exportRecording } from "../../api/recordings";
 
@@ -191,6 +192,7 @@ export default function VideoEditor() {
         pastorMicVolume: pastorMic,
         masterVolume: master,
         format,
+        noiseReduction,
       });
       setExportUrl(result.downloadUrl);
     } catch (err) {
@@ -468,7 +470,7 @@ export default function VideoEditor() {
           </Box>
         </Box>
 
-        {/* Audio mixer + instrumental + branding panel */}
+        {/* Audio mixer + instrumental + soundboard + branding panel */}
         <Box sx={{ flex: 1, minWidth: 280 }}>
           <Typography variant="overline" sx={{ color: "rgba(237,239,244,0.45)", letterSpacing: 1, fontSize: 11 }}>
             Original Recording
@@ -494,6 +496,10 @@ export default function VideoEditor() {
               Add background music or a keyboard pad below — this plays alongside the recording.
             </Typography>
             <InstrumentalPanel />
+          </Box>
+
+          <Box sx={{ mt: 2, pt: 3, borderTop: "1px solid rgba(237,239,244,0.1)" }}>
+            <SoundboardPanel />
           </Box>
 
           <Box sx={{ mt: 2, pt: 3, borderTop: "1px solid rgba(237,239,244,0.1)" }}>

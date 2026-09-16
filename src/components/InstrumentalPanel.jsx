@@ -1,8 +1,9 @@
 import { useRef, useState, useEffect } from "react";
-import { Box, Typography, IconButton, Slider, Switch, Stack } from "@mui/material";
+import { Box, Typography, IconButton, Slider, Switch, Stack, ToggleButtonGroup, ToggleButton } from "@mui/material";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import StopIcon from "@mui/icons-material/Stop";
 import PianoIcon from "@mui/icons-material/Piano";
+import UploadFileIcon from "@mui/icons-material/UploadFile";
 
 const PRESETS = [
   { id: "soft-piano", label: "Soft Piano Pad", notes: [261.63, 329.63, 392.0] },
@@ -28,8 +29,12 @@ export default function InstrumentalPanel() {
   const contextRef = useRef(null);
   const nodesRef = useRef(null);
   const voicesRef = useRef([]);
+  const audioElRef = useRef(null);
+  const uploadedSourceNodeRef = useRef(null);
 
+  const [source, setSource] = useState("preset"); // "preset" | "upload"
   const [selectedPreset, setSelectedPreset] = useState(PRESETS[0].id);
+  const [uploadedFileName, setUploadedFileName] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(35);
   const [reverbOn, setReverbOn] = useState(true);
@@ -43,19 +48,16 @@ export default function InstrumentalPanel() {
     const masterGain = ctx.createGain();
     masterGain.gain.value = volume / 100;
 
-    // Lowpass to round off harsh harmonics
     const lowpass = ctx.createBiquadFilter();
     lowpass.type = "lowpass";
     lowpass.frequency.value = 1400;
     lowpass.Q.value = 0.3;
 
-    // "Warmth" — low-shelf boost, adds body/roundness
     const warmthShelf = ctx.createBiquadFilter();
     warmthShelf.type = "lowshelf";
     warmthShelf.frequency.value = 300;
     warmthShelf.gain.value = warmthOn ? 6 : 0;
 
-    // Reverb send
     const dryGain = ctx.createGain();
     const wetGain = ctx.createGain();
     dryGain.gain.value = reverbOn ? 0.35 : 1;
@@ -63,7 +65,6 @@ export default function InstrumentalPanel() {
     const convolver = ctx.createConvolver();
     convolver.buffer = buildReverbImpulse(ctx);
 
-    // Echo send — delay with feedback loop
     const echoInputGain = ctx.createGain();
     echoInputGain.gain.value = echoOn ? 0.35 : 0;
     const delay = ctx.createDelay(2.0);
@@ -92,26 +93,6 @@ export default function InstrumentalPanel() {
     contextRef.current = ctx;
     nodesRef.current = { masterGain, warmthShelf, dryGain, wetGain, echoInputGain };
     return { ctx, masterGain };
-  };
-
-  const stopPad = () => {
-    const ctx = contextRef.current;
-    voicesRef.current.forEach(({ oscA, oscB, oscC, noteGain }) => {
-      if (ctx) {
-        noteGain.gain.cancelScheduledValues(ctx.currentTime);
-        noteGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 1.2);
-      }
-      setTimeout(() => {
-        [oscA, oscB, oscC].forEach((osc) => {
-          try {
-            osc.stop();
-          } catch {
-            /* already stopped */
-          }
-        });
-      }, 1250);
-    });
-    voicesRef.current = [];
   };
 
   const buildVoice = (ctx, masterGain, freq, voiceCount) => {
@@ -151,35 +132,86 @@ export default function InstrumentalPanel() {
     return { oscA, oscB, oscC, lfo, noteGain };
   };
 
+  const stopPresetVoices = () => {
+    const ctx = contextRef.current;
+    voicesRef.current.forEach(({ oscA, oscB, oscC, noteGain }) => {
+      if (ctx) {
+        noteGain.gain.cancelScheduledValues(ctx.currentTime);
+        noteGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 1.2);
+      }
+      setTimeout(() => {
+        [oscA, oscB, oscC].forEach((osc) => {
+          try { osc.stop(); } catch { /* already stopped */ }
+        });
+      }, 1250);
+    });
+    voicesRef.current = [];
+  };
+
   const playPreset = (id) => {
     const preset = PRESETS.find((p) => p.id === id);
     const { ctx, masterGain } = setupAudioGraph();
-    voicesRef.current = preset.notes.map((freq) =>
-      buildVoice(ctx, masterGain, freq, preset.notes.length)
-    );
+    voicesRef.current = preset.notes.map((freq) => buildVoice(ctx, masterGain, freq, preset.notes.length));
+  };
+
+  const playUploadedFile = () => {
+    if (!audioElRef.current) return;
+    const { ctx, masterGain } = setupAudioGraph();
+    const sourceNode = ctx.createMediaElementSource(audioElRef.current);
+    sourceNode.connect(masterGain);
+    uploadedSourceNodeRef.current = sourceNode;
+    audioElRef.current.currentTime = 0;
+    audioElRef.current.loop = true;
+    audioElRef.current.play();
+  };
+
+  const handleUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadedFileName(file.name);
+    const url = URL.createObjectURL(file);
+    const audioEl = new Audio(url);
+    audioElRef.current = audioEl;
+    e.target.value = "";
   };
 
   const togglePlay = () => {
     if (isPlaying) {
-      stopPad();
-      setTimeout(() => contextRef.current?.close(), 1300);
+      if (source === "preset") {
+        stopPresetVoices();
+      } else {
+        audioElRef.current?.pause();
+      }
+      setTimeout(() => contextRef.current?.close(), source === "preset" ? 1300 : 0);
+      contextRef.current = null;
       setIsPlaying(false);
     } else {
-      playPreset(selectedPreset);
+      if (source === "preset") {
+        playPreset(selectedPreset);
+      } else {
+        if (!audioElRef.current) return;
+        playUploadedFile();
+      }
       setIsPlaying(true);
     }
   };
 
   const handlePresetSelect = (id) => {
     setSelectedPreset(id);
-    if (isPlaying) {
-      stopPad();
+    if (isPlaying && source === "preset") {
+      stopPresetVoices();
       const prevCtx = contextRef.current;
       setTimeout(() => {
         prevCtx?.close();
         playPreset(id);
       }, 200);
     }
+  };
+
+  const handleSourceChange = (e, val) => {
+    if (!val) return;
+    if (isPlaying) togglePlay();
+    setSource(val);
   };
 
   const handleVolumeChange = (val) => {
@@ -197,21 +229,18 @@ export default function InstrumentalPanel() {
 
   const handleEchoToggle = (checked) => {
     setEchoOn(checked);
-    if (nodesRef.current) {
-      nodesRef.current.echoInputGain.gain.value = checked ? 0.35 : 0;
-    }
+    if (nodesRef.current) nodesRef.current.echoInputGain.gain.value = checked ? 0.35 : 0;
   };
 
   const handleWarmthToggle = (checked) => {
     setWarmthOn(checked);
-    if (nodesRef.current) {
-      nodesRef.current.warmthShelf.gain.value = checked ? 6 : 0;
-    }
+    if (nodesRef.current) nodesRef.current.warmthShelf.gain.value = checked ? 6 : 0;
   };
 
   useEffect(() => {
     return () => {
-      stopPad();
+      stopPresetVoices();
+      audioElRef.current?.pause();
       contextRef.current?.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -229,49 +258,63 @@ export default function InstrumentalPanel() {
         Instrumental
       </Typography>
 
-      <Stack spacing={0.5} sx={{ mb: 2.5 }}>
-        {PRESETS.map((preset) => (
-          <Box
-            key={preset.id}
-            onClick={() => handlePresetSelect(preset.id)}
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 1.2,
-              px: 1.5,
-              py: 1,
-              borderRadius: 1,
-              cursor: "pointer",
-              bgcolor: selectedPreset === preset.id ? "rgba(226,163,62,0.12)" : "transparent",
-              "&:hover": { bgcolor: "rgba(237,239,244,0.06)" },
-            }}
-          >
-            <PianoIcon
+      <ToggleButtonGroup
+        value={source}
+        exclusive
+        onChange={handleSourceChange}
+        size="small"
+        sx={{ mb: 2, width: "100%" }}
+      >
+        <ToggleButton value="preset" sx={{ flex: 1, color: "rgba(237,239,244,0.7)", "&.Mui-selected": { color: "#fff", bgcolor: "rgba(226,163,62,0.2)" } }}>
+          Presets
+        </ToggleButton>
+        <ToggleButton value="upload" sx={{ flex: 1, color: "rgba(237,239,244,0.7)", "&.Mui-selected": { color: "#fff", bgcolor: "rgba(226,163,62,0.2)" } }}>
+          Upload Your Own
+        </ToggleButton>
+      </ToggleButtonGroup>
+
+      {source === "preset" ? (
+        <Stack spacing={0.5} sx={{ mb: 2.5 }}>
+          {PRESETS.map((preset) => (
+            <Box
+              key={preset.id}
+              onClick={() => handlePresetSelect(preset.id)}
               sx={{
-                fontSize: 16,
-                color: selectedPreset === preset.id ? "secondary.main" : "rgba(237,239,244,0.4)",
-              }}
-            />
-            <Typography
-              variant="body2"
-              sx={{
-                color: selectedPreset === preset.id ? "#fff" : "rgba(237,239,244,0.75)",
-                fontWeight: selectedPreset === preset.id ? 600 : 400,
+                display: "flex", alignItems: "center", gap: 1.2, px: 1.5, py: 1, borderRadius: 1, cursor: "pointer",
+                bgcolor: selectedPreset === preset.id ? "rgba(226,163,62,0.12)" : "transparent",
+                "&:hover": { bgcolor: "rgba(237,239,244,0.06)" },
               }}
             >
-              {preset.label}
+              <PianoIcon sx={{ fontSize: 16, color: selectedPreset === preset.id ? "secondary.main" : "rgba(237,239,244,0.4)" }} />
+              <Typography variant="body2" sx={{ color: selectedPreset === preset.id ? "#fff" : "rgba(237,239,244,0.75)", fontWeight: selectedPreset === preset.id ? 600 : 400 }}>
+                {preset.label}
+              </Typography>
+            </Box>
+          ))}
+        </Stack>
+      ) : (
+        <Box sx={{ mb: 2.5 }}>
+          <Box
+            component="label"
+            sx={{
+              display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 1.2, borderRadius: 1, cursor: "pointer",
+              border: "1px dashed rgba(237,239,244,0.25)", color: "rgba(237,239,244,0.8)",
+            }}
+          >
+            <UploadFileIcon sx={{ fontSize: 18 }} />
+            <Typography variant="body2" noWrap>
+              {uploadedFileName || "Choose an audio file..."}
             </Typography>
+            <input type="file" accept="audio/*" hidden onChange={handleUpload} />
           </Box>
-        ))}
-      </Stack>
+        </Box>
+      )}
 
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 2 }}>
         <IconButton
           onClick={togglePlay}
-          sx={{
-            bgcolor: isPlaying ? "rgba(198,67,43,0.2)" : "rgba(237,239,244,0.1)",
-            "&:hover": { bgcolor: isPlaying ? "rgba(198,67,43,0.3)" : "rgba(237,239,244,0.18)" },
-          }}
+          disabled={source === "upload" && !uploadedFileName}
+          sx={{ bgcolor: isPlaying ? "rgba(198,67,43,0.2)" : "rgba(237,239,244,0.1)", "&:hover": { bgcolor: isPlaying ? "rgba(198,67,43,0.3)" : "rgba(237,239,244,0.18)" } }}
         >
           {isPlaying ? <StopIcon sx={{ color: "#fff" }} /> : <PlayArrowIcon sx={{ color: "#fff" }} />}
         </IconButton>
@@ -282,22 +325,14 @@ export default function InstrumentalPanel() {
 
       <Box sx={{ mb: 2 }}>
         <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-          <Typography variant="caption" sx={{ color: "rgba(237,239,244,0.5)" }}>
-            Volume
-          </Typography>
-          <Typography variant="caption" sx={{ color: "rgba(237,239,244,0.5)" }}>
-            {volume}%
-          </Typography>
+          <Typography variant="caption" sx={{ color: "rgba(237,239,244,0.5)" }}>Volume</Typography>
+          <Typography variant="caption" sx={{ color: "rgba(237,239,244,0.5)" }}>{volume}%</Typography>
         </Box>
         <Slider
           value={volume}
           onChange={(e, val) => handleVolumeChange(val)}
           size="small"
-          sx={{
-            color: "#E2A33E",
-            "& .MuiSlider-thumb": { width: 12, height: 12 },
-            "& .MuiSlider-rail": { bgcolor: "rgba(237,239,244,0.15)" },
-          }}
+          sx={{ color: "#E2A33E", "& .MuiSlider-thumb": { width: 12, height: 12 }, "& .MuiSlider-rail": { bgcolor: "rgba(237,239,244,0.15)" } }}
         />
       </Box>
 
@@ -307,17 +342,12 @@ export default function InstrumentalPanel() {
       <Stack spacing={0.8}>
         {effectToggles.map((fx) => (
           <Box key={fx.label} sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <Typography variant="body2" sx={{ color: "rgba(237,239,244,0.8)" }}>
-              {fx.label}
-            </Typography>
+            <Typography variant="body2" sx={{ color: "rgba(237,239,244,0.8)" }}>{fx.label}</Typography>
             <Switch
               checked={fx.checked}
               onChange={(e) => fx.onChange(e.target.checked)}
               size="small"
-              sx={{
-                "& .MuiSwitch-switchBase.Mui-checked": { color: "#E2A33E" },
-                "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: "#E2A33E" },
-              }}
+              sx={{ "& .MuiSwitch-switchBase.Mui-checked": { color: "#E2A33E" }, "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: "#E2A33E" } }}
             />
           </Box>
         ))}

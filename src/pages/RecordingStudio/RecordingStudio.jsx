@@ -347,9 +347,17 @@ export default function RecordingStudio() {
                 <IconButton onClick={handleTogglePause} sx={{ width: 56, height: 56, bgcolor: "rgba(237,239,244,0.1)" }}>
                   {isPaused ? <PlayArrowIcon sx={{ color: "#fff" }} /> : <PauseIcon sx={{ color: "#fff" }} />}
                 </IconButton>
-                <IconButton onClick={handleStop} sx={{ width: 56, height: 56, bgcolor: "rgba(237,239,244,0.1)" }}>
-                  <StopIcon sx={{ color: "#fff" }} />
-                </IconButton>
+                <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0.5 }}>
+                  <IconButton
+                    onClick={handleStop}
+                    sx={{ width: 56, height: 56, bgcolor: "rgba(237,239,244,0.1)" }}
+                  >
+                    <StopIcon sx={{ color: "#fff" }} />
+                  </IconButton>
+                  <Typography variant="caption" sx={{ color: "rgba(237,239,244,0.5)" }}>
+                    Finish
+                  </Typography>
+                </Box>
               </>
             )}
             <Typography variant="body2" sx={{ color: "rgba(237,239,244,0.5)" }}>
