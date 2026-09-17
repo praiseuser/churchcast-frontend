@@ -21,6 +21,7 @@ import ZoomInIcon from "@mui/icons-material/ZoomIn";
 import LevelMeter from "../../components/LevelMeter";
 import useAuthStore from "../../context/authStore";
 import { startEgress, stopEgress } from "../../api/egress";
+import { getRecording } from "../../api/recordings";
 
 function formatTime(totalSeconds) {
   const m = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
@@ -54,12 +55,20 @@ export default function RecordingStudio() {
   const [zoom, setZoom] = useState(1);
   const videoTrackRef = useRef(null);
 
+  const [isPrimaryRecorder, setIsPrimaryRecorder] = useState(true);
+
   useEffect(() => {
     return () => {
       roomRef.current?.disconnect();
       clearInterval(timerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    getRecording(id)
+      .then((rec) => setIsPrimaryRecorder(rec.recordedBy === user?.name))
+      .catch(() => setIsPrimaryRecorder(true));
+  }, [id, user]);
 
   const refreshAudioDevices = async () => {
     try {
@@ -174,7 +183,9 @@ export default function RecordingStudio() {
         await room.localParticipant.setCameraEnabled(true, { facingMode: "environment" });
         await room.localParticipant.setMicrophoneEnabled(true);
         setCameraError(false);
-        startLocalRecording(room);
+        if (isPrimaryRecorder) {
+          startLocalRecording(room);
+        }
       } catch (mediaErr) {
         console.error("Camera/mic error:", mediaErr);
         setCameraError(true);
@@ -182,15 +193,17 @@ export default function RecordingStudio() {
 
       await refreshAudioDevices();
 
-      try {
-        await startEgress(id, { streamToFacebook });
-      } catch (err) {
-        console.error("Could not start Facebook stream:", err);
+      if (isPrimaryRecorder) {
+        try {
+          await startEgress(id, { streamToFacebook });
+        } catch (err) {
+          console.error("Could not start Facebook stream:", err);
+        }
       }
 
       setIsLive(true);
       setConnecting(false);
-      setStatus("Live — Recording");
+      setStatus(isPrimaryRecorder ? "Live — Recording" : "Live — Secondary Camera");
       setSeconds(0);
       timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
     } catch (err) {
@@ -207,7 +220,7 @@ export default function RecordingStudio() {
     await room.localParticipant.setCameraEnabled(!nextPaused);
     await room.localParticipant.setMicrophoneEnabled(!nextPaused);
     setIsPaused(nextPaused);
-    setStatus(nextPaused ? "Paused" : "Live — Recording");
+    setStatus(nextPaused ? "Paused" : isPrimaryRecorder ? "Live — Recording" : "Live — Secondary Camera");
   };
 
   const handleStop = async () => {
@@ -222,10 +235,12 @@ export default function RecordingStudio() {
 
     await chunkQueueRef.current;
 
-    try {
-      await stopEgress(id);
-    } catch (err) {
-      console.error("Could not stop Facebook stream:", err);
+    if (isPrimaryRecorder) {
+      try {
+        await stopEgress(id);
+      } catch (err) {
+        console.error("Could not stop Facebook stream:", err);
+      }
     }
 
     await roomRef.current?.disconnect();
@@ -233,19 +248,23 @@ export default function RecordingStudio() {
     setIsLive(false);
     setIsPaused(false);
 
-    setStatus("Finalizing recording on server — do not close this page...");
-    try {
-      const finalizeRes = await fetch(`${import.meta.env.VITE_API_URL || ""}/recordings/${id}/finalize`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${localStorage.getItem("churchcast_token")}` },
-      });
-      if (!finalizeRes.ok) throw new Error(`Finalize failed with ${finalizeRes.status}`);
-      const result = await finalizeRes.json();
-      console.log("Recording saved:", result);
-      setStatus("Recording saved!");
-    } catch (err) {
-      console.error("Finalize failed:", err);
-      setStatus("Upload finished, finalizing failed — your recording is safe on the server, contact support to recover it");
+    if (isPrimaryRecorder) {
+      setStatus("Finalizing recording on server — do not close this page...");
+      try {
+        const finalizeRes = await fetch(`${import.meta.env.VITE_API_URL || ""}/recordings/${id}/finalize`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${localStorage.getItem("churchcast_token")}` },
+        });
+        if (!finalizeRes.ok) throw new Error(`Finalize failed with ${finalizeRes.status}`);
+        const result = await finalizeRes.json();
+        console.log("Recording saved:", result);
+        setStatus("Recording saved!");
+      } catch (err) {
+        console.error("Finalize failed:", err);
+        setStatus("Upload finished, finalizing failed — your recording is safe on the server, contact support to recover it");
+      }
+    } else {
+      setStatus("Ready to record");
     }
 
     setSeconds(0);
@@ -267,7 +286,7 @@ export default function RecordingStudio() {
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 4 }}>
         <Box>
           <Typography variant="h5" sx={{ fontFamily: '"Newsreader", serif' }}>
-            Recording Studio
+            Recording Studio {!isPrimaryRecorder && "· Secondary Camera"}
           </Typography>
           <Typography variant="body2" sx={{ color: "rgba(237,239,244,0.55)" }}>
             Recording ID: {id} · {status}
@@ -327,10 +346,12 @@ export default function RecordingStudio() {
             </Select>
           </FormControl>
 
-          <FormControlLabel
-            control={<Switch checked={streamToFacebook} onChange={(e) => setStreamToFacebook(e.target.checked)} disabled={isLive} sx={{ "& .MuiSwitch-switchBase.Mui-checked": { color: "#1877F2" }, "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: "#1877F2" } }} />}
-            label={<Typography variant="body2" sx={{ color: "rgba(237,239,244,0.8)" }}>Also go live on Facebook</Typography>}
-          />
+          {isPrimaryRecorder && (
+            <FormControlLabel
+              control={<Switch checked={streamToFacebook} onChange={(e) => setStreamToFacebook(e.target.checked)} disabled={isLive} sx={{ "& .MuiSwitch-switchBase.Mui-checked": { color: "#1877F2" }, "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: "#1877F2" } }} />}
+              label={<Typography variant="body2" sx={{ color: "rgba(237,239,244,0.8)" }}>Also go live on Facebook</Typography>}
+            />
+          )}
 
           <Box>
             <Typography variant="body2" sx={{ color: "rgba(237,239,244,0.55)", mb: 1.5 }}>Microphone Level</Typography>

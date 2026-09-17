@@ -19,3 +19,8 @@ export async function exportRecording(id, payload) {
   const { data } = await apiClient.post(`/export/${id}`, payload);
   return data;
 }
+
+export async function getLiveRecordings() {
+  const { data } = await apiClient.get("/recordings/live");
+  return data;
+}

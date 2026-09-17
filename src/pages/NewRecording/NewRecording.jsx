@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Box,
@@ -8,18 +8,28 @@ import {
   Button,
   Paper,
   Alert,
+  Divider,
+  List,
+  ListItemButton,
+  ListItemText,
+  Chip,
 } from "@mui/material";
-import { startRecording } from "../../api/recordings";
+import { startRecording, getLiveRecordings } from "../../api/recordings";
 
 const serviceTypes = ["Sunday Service", "Bible Study", "Praise & Worship", "Workshop", "Special Service"];
 
 export default function NewRecording() {
   const navigate = useNavigate();
   const [title, setTitle] = useState("");
+  const [liveRecordings, setLiveRecordings] = useState([]);
   const [type, setType] = useState("Sunday Service");
   const [date, setDate] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    getLiveRecordings().then(setLiveRecordings).catch(console.error);
+  }, []);
 
   const handleStart = async (e) => {
     e.preventDefault();
@@ -100,6 +110,25 @@ export default function NewRecording() {
           </Button>
         </Box>
       </Paper>
+
+      {liveRecordings.length > 0 && (
+        <Box sx={{ mt: 4 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+            Or join a recording already in progress
+          </Typography>
+          <List sx={{ bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
+            {liveRecordings.map((rec, i) => (
+              <Box key={rec.id}>
+                <ListItemButton onClick={() => navigate(`/media/recording-studio/${rec.id}`)}>
+                  <ListItemText primary={rec.title} secondary={`Started by ${rec.recordedBy}`} />
+                  <Chip label="LIVE" size="small" sx={{ bgcolor: "#C6432B", color: "#fff" }} />
+                </ListItemButton>
+                {i < liveRecordings.length - 1 && <Divider />}
+              </Box>
+            ))}
+          </List>
+        </Box>
+      )}
     </Box>
   );
 }

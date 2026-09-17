@@ -1,14 +1,27 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Room, RoomEvent } from "livekit-client";
-import { Box, Typography, TextField, Button, Paper } from "@mui/material";
+import { Box, Typography, TextField, Button, Paper, Chip } from "@mui/material";
 
 export default function Viewer() {
     const [roomName, setRoomName] = useState("");
     const [connected, setConnected] = useState(false);
     const [status, setStatus] = useState("");
+    const [activeSpeakerName, setActiveSpeakerName] = useState("");
     const videoRef = useRef(null);
-    const audioRef = useRef(null);
+    const audioRefs = useRef({});
     const roomRef = useRef(null);
+    const tracksRef = useRef([]);
+    const switchIntervalRef = useRef(null);
+    const currentIndexRef = useRef(0);
+
+    const showNextFeed = () => {
+        const tracks = tracksRef.current;
+        if (!tracks.length || !videoRef.current) return;
+        currentIndexRef.current = (currentIndexRef.current + 1) % tracks.length;
+        const next = tracks[currentIndexRef.current];
+        next.track.attach(videoRef.current);
+        setActiveSpeakerName(next.participantName);
+    };
 
     const handleConnect = async () => {
         if (!roomName.trim()) {
@@ -31,10 +44,31 @@ export default function Viewer() {
             const room = new Room();
             roomRef.current = room;
 
-            room.on(RoomEvent.TrackSubscribed, (track) => {
-                if (track.kind === "video" && videoRef.current) track.attach(videoRef.current);
-                if (track.kind === "audio" && audioRef.current) track.attach(audioRef.current);
+            room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+                if (track.kind === "video") {
+                    tracksRef.current.push({ participantName: participant.identity, track });
+                    if (tracksRef.current.length === 1) {
+                        track.attach(videoRef.current);
+                        setActiveSpeakerName(participant.identity);
+                    }
+                }
+                if (track.kind === "audio") {
+                    const audioEl = document.createElement("audio");
+                    audioEl.autoplay = true;
+                    track.attach(audioEl);
+                    audioRefs.current[participant.identity] = audioEl;
+                    document.body.appendChild(audioEl);
+                }
             });
+
+            room.on(RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
+                tracksRef.current = tracksRef.current.filter((t) => t.track !== track);
+                if (track.kind === "audio" && audioRefs.current[participant.identity]) {
+                    audioRefs.current[participant.identity].remove();
+                    delete audioRefs.current[participant.identity];
+                }
+            });
+
             room.on(RoomEvent.Disconnected, () => setConnected(false));
 
             setStatus("Connecting...");
@@ -42,6 +76,8 @@ export default function Viewer() {
 
             setConnected(true);
             setStatus("Watching live");
+
+            switchIntervalRef.current = setInterval(showNextFeed, 5000);
         } catch (err) {
             console.error(err);
             setStatus(`Failed to connect: ${err.message}`);
@@ -49,10 +85,18 @@ export default function Viewer() {
     };
 
     const handleDisconnect = async () => {
+        clearInterval(switchIntervalRef.current);
         await roomRef.current?.disconnect();
+        tracksRef.current = [];
+        Object.values(audioRefs.current).forEach((el) => el.remove());
+        audioRefs.current = {};
         setConnected(false);
         setStatus("");
     };
+
+    useEffect(() => {
+        return () => clearInterval(switchIntervalRef.current);
+    }, []);
 
     return (
         <Box sx={{ p: 4, maxWidth: 640, mx: "auto" }}>
@@ -83,10 +127,16 @@ export default function Viewer() {
                 </Typography>
             </Paper>
 
-            <Box sx={{ aspectRatio: "16/9", bgcolor: "#000" }}>
+            <Box sx={{ position: "relative", aspectRatio: "16/9", bgcolor: "#000" }}>
                 <video ref={videoRef} autoPlay playsInline style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                {connected && activeSpeakerName && (
+                    <Chip
+                        label={activeSpeakerName}
+                        size="small"
+                        sx={{ position: "absolute", bottom: 12, left: 12, bgcolor: "rgba(0,0,0,0.6)", color: "#fff" }}
+                    />
+                )}
             </Box>
-            <audio ref={audioRef} autoPlay />
         </Box>
     );
 }
